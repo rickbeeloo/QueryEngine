@@ -1,0 +1,5 @@
+query	match
+test	test1
+a yellow banana from the store	banana
+vanilla	vanilla
+peanutbutter	NA
