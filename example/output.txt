@@ -2,4 +2,4 @@ query	match
 test	test2
 a yellow banana from the store	yellow banana
 vanilla	vanilla
-peanutbutter	tester
+peanutbutter	NA

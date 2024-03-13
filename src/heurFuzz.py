@@ -18,22 +18,45 @@ def _read_file_as_numpy(file, buffer_size):
             python_vector.append(buffer)
     return np.array(python_vector)
 
+
+@jit(nopython=True)
+def as_bigram(arr):
+    last_non_zero_index = np.flatnonzero(arr)[-1]
+    trimmed_array = arr[:last_non_zero_index + 1]
+    n = len(trimmed_array)
+    bigrams = np.empty((n - 1, 2), dtype=np.uint8)
+    # Iterate over the trimmed array with a sliding window
+    for i in range(n - 1):
+        bigrams[i] = trimmed_array[i:i+2]
+    return bigrams
+    
+@jit(nopython=True)
+def bigram_intersection(bi1, bi2):
+    shared_count = 0
+    for i in range(bi1.shape[0]):
+        row1 = bi1[i]
+        for j in range(bi2.shape[0]):
+            row2 = bi2[j]
+            if np.all(row1 == row2):
+                shared_count += 1
+                break 
+    return shared_count / len(bi1)
+
+    
 @jit(nopython=True, parallel=True)
 def _calculate_coverage(queries, refs):
     # Initialize an empty array to store coverage values
     coverage = np.zeros((len(refs), len(queries)))
+    # Convert to bigram list
+    query_bigrams = [as_bigram(q) for q in queries]
     # Iterate over references
     for i in prange(len(refs)):
         # Convert reference to a set for faster lookup
-        r_set = set(refs[i])
+        r_bigram = as_bigram(refs[i])
         # Iterate over queries
-        for j in range(len(queries)):
-            # Count matches between reference and query
-            c = 0
-            for number in queries[j]:
-                if number != 0 and number in r_set:
-                    c += 1
-            coverage[i, j] = c / len(queries[j])
+        for j in range(len(query_bigrams)):
+            query_bigram = query_bigrams[j]
+            coverage[i, j] = bigram_intersection(query_bigram, r_bigram) 
     return coverage # Columns = refs, queries = rows
 
 @jit(nopython=True, parallel=True)
@@ -69,7 +92,7 @@ def _as_string(np_uint8):
     return np_uint8[nonzero_index].tobytes().decode()
 
 def _rapid_fuzz_pass(topK_indices, queries, refs, len_matrix, fuzz_socre):
-    n_rows, n_cols = topK_indices.shape
+    _, n_cols = topK_indices.shape
     best_matches = np.empty(n_cols, dtype=object)
     total, mapped = 0, 0
     for i in tqdm(range(n_cols)):
@@ -77,8 +100,6 @@ def _rapid_fuzz_pass(topK_indices, queries, refs, len_matrix, fuzz_socre):
         q = _as_string(queries[i])
         total +=1
         r = [_as_string(r) for r in refs[topK_indices[: , i]]]
-        print("Q: ", q)
-        print("R: ", r)
         # Note we now again switch the queries and refs
         score_matrix = rapidfuzz.process.cdist(r, [q],
                         processor=str.lower, 
@@ -99,12 +120,10 @@ def _rapid_fuzz_pass(topK_indices, queries, refs, len_matrix, fuzz_socre):
                 min_len_index = np.argmin(max_score_lens)
                 best_matches[i] = r[max_indices[min_len_index]]                
             else:
-                print("Just single match")
                 best_matches[i] = r[max_indices[0]]
             
     r = round(mapped / total * 100,2)
     print(f"\tMap ratio: {r}% ({mapped} / {total})")
-    print(best_matches)
     return best_matches
 
 def _dump_to_file(queries, matches, output_file):
