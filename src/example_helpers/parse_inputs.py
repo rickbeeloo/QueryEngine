@@ -1,10 +1,15 @@
 import wget 
 import zipfile 
 import csv 
+import os
 
 BV_BRC_METADTA_FTP = "ftp://ftp.bvbrc.org/RELEASE_NOTES/genome_metadata"
 NCBI_TAXON_DUMP = "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdmp.zip"
 
+# Create the output folder
+newpath = "../../example/downloads"
+if not os.path.exists(newpath):
+    os.makedirs(newpath)
 
 # Download BV-BRC metadata file
 print("Downloading BV-BRC metadata")
