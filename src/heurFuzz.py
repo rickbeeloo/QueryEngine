@@ -4,6 +4,7 @@ import numpy as np
 import sys 
 import rapidfuzz
 import time 
+from numba_progress import ProgressBar
 import argparse
 
 def _read_file_as_numpy(file, buffer_size):
@@ -43,8 +44,8 @@ def bigram_intersection(bi1, bi2):
     return shared_count / len(bi1)
 
     
-@jit(nopython=True, parallel=True)
-def _calculate_coverage(queries, refs):
+@jit(nopython=True, parallel=True, nogil=True)
+def _calculate_coverage(queries, refs, progress_proxy):
     # Initialize an empty array to store coverage values
     coverage = np.zeros((len(refs), len(queries)))
     # Convert to bigram list
@@ -57,6 +58,7 @@ def _calculate_coverage(queries, refs):
         for j in range(len(query_bigrams)):
             query_bigram = query_bigrams[j]
             coverage[i, j] = bigram_intersection(query_bigram, r_bigram) 
+        progress_proxy.update(1)
     return coverage # Columns = refs, queries = rows
 
 @jit(nopython=True, parallel=True)
@@ -148,7 +150,10 @@ def run(query_file, ref_file, topK, fuzz_socre, buffer_size, output_file):
     print("\tRefs...")
     ref_lens = _get_length_array(ref_vectors)
     print("[STEP3] Building coverage matrix..")
-    cov_matrix = _calculate_coverage(query_vectors, ref_vectors)
+    
+    with ProgressBar(total=len(ref_vectors)) as progress:
+        cov_matrix = _calculate_coverage(query_vectors, ref_vectors, progress)
+    
     print("\tMatrix shape: ", cov_matrix.shape)
     print("[STEP4] Building Length matrix...")
     len_matrix = _calculate_lengths(query_lens, ref_lens)
