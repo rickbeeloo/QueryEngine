@@ -41,7 +41,7 @@ def _calculate_lengths(query_lens, ref_lens):
     lens = np.zeros((len(ref_lens), len(query_lens)))
     for i in prange(len(ref_lens)):
         for j in range(len(query_lens)):
-            lens[i, j] = query_lens[j] - ref_lens[i]
+            lens[i, j] = abs(query_lens[j] - ref_lens[i]) # Can be either direciton, hence as absolute
     return lens
             
 @jit(nopython=True, parallel=True)
@@ -68,7 +68,7 @@ def _as_string(np_uint8):
     nonzero_index = np.nonzero(np_uint8)[0]
     return np_uint8[nonzero_index].tobytes().decode()
 
-def _rapid_fuzz_pass(topK_indices, queries, refs, fuzz_socre):
+def _rapid_fuzz_pass(topK_indices, queries, refs, len_matrix, fuzz_socre):
     n_rows, n_cols = topK_indices.shape
     best_matches = np.empty(n_cols, dtype=object)
     total, mapped = 0, 0
@@ -77,6 +77,8 @@ def _rapid_fuzz_pass(topK_indices, queries, refs, fuzz_socre):
         q = _as_string(queries[i])
         total +=1
         r = [_as_string(r) for r in refs[topK_indices[: , i]]]
+        print("Q: ", q)
+        print("R: ", r)
         # Note we now again switch the queries and refs
         score_matrix = rapidfuzz.process.cdist(r, [q],
                         processor=str.lower, 
@@ -89,12 +91,20 @@ def _rapid_fuzz_pass(topK_indices, queries, refs, fuzz_socre):
         if np.all(score_vector==0):
             best_matches[i] = "NA"
         else:
-            max_value = np.argmax(score_vector)
-            print(max_value)
-            best_matches[i] = r[max_value]
             mapped +=1
+            max_indices = np.argwhere(score_vector == np.amax(score_vector))[:,0]                       
+            if len(max_indices) > 1:
+                len_vector = len_matrix[topK_indices[: , i], i]
+                max_score_lens = len_vector[max_indices]
+                min_len_index = np.argmin(max_score_lens)
+                best_matches[i] = r[max_indices[min_len_index]]                
+            else:
+                print("Just single match")
+                best_matches[i] = r[max_indices[0]]
+            
     r = round(mapped / total * 100,2)
     print(f"\tMap ratio: {r}% ({mapped} / {total})")
+    print(best_matches)
     return best_matches
 
 def _dump_to_file(queries, matches, output_file):
@@ -123,11 +133,13 @@ def run(query_file, ref_file, topK, fuzz_socre, buffer_size, output_file):
     print("\tMatrix shape: ", cov_matrix.shape)
     print("[STEP4] Building Length matrix...")
     len_matrix = _calculate_lengths(query_lens, ref_lens)
+    print("Length matrix")
+    print(len_matrix)
     print("[STEP5] Running topK selection...")
     top_results = _topK_pass(cov_matrix, len_matrix, topK)
     print(top_results)
     print("[STEP6] Running RapidFuzz..")
-    best_matches = _rapid_fuzz_pass(top_results, query_vectors, ref_vectors, fuzz_socre)
+    best_matches = _rapid_fuzz_pass(top_results, query_vectors, ref_vectors, len_matrix, fuzz_socre)
     print("[STEP6] Writing output file...")
     _dump_to_file(query_vectors, best_matches, output_file)
     took = round( (time.time() - s) / 60, 2)
