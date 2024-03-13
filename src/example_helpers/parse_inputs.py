@@ -25,7 +25,9 @@ host_col = "host_name"
 with open(bv_brc_out, "r", encoding="utf-8") as in_file, open(bv_brc_out_unique, "w", encoding="utf-8") as out:
     unique_host_names = set([row[host_col].lower() for row in csv.DictReader(in_file, delimiter="\t")])
     print(f"Unique host name: {len(unique_host_names)}")
-    out.write("\n".join(unique_host_names))
+    for name in unique_host_names:
+        if name.strip() and len(name) > 1:
+            out.write(f"{name}\n")
 
 print("Reading taxo dump file")
 taxo_names_out = "../../example/downloads/taxo_names.txt"
